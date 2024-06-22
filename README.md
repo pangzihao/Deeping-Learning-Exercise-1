@@ -102,7 +102,7 @@ def train_and_save_model(batch_norm, l2, dropout, model_name, x_train, y_train):
     loss = 'categorical_crossentropy'
     metrics = 'categorical_accuracy'
     validation_split = 0.1
-    learning_rate = 1e-3
+    learning_rate = 1e-4
     epochs = 50
     batch_size = 64
     dropout_rate = 0.5
