@@ -3,11 +3,29 @@
 * To run the exercise, execute all the code blocks in the attached Jupyter notebook.
 * All test cases will run automatically—no manual parameter changes are needed.
 
-## Code Explanation
+## Table of Contents
 
-### Load and Prepare Data
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Loading Data](#loading-data)
+  - [Training the Model](#training-the-model)
+  - [Testing the Model](#testing-the-model)
+- [Analysis](#analysis)
+- [Reference](#reference)
 
-The FashionMNIST dataset is loaded and augmented to include horizontal flips for specific classes to address asymmetry in the data.
+## Installation
+
+To run this project, you need Python 3.7 and the following packages installed:
+
+```bash
+!python --version
+!sudo apt-get install python3.7
+!sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 1
+pip install tensorflow numpy matplotlib
+```
+
+## Usage
+### Loading Data
 
 ```python
 from google.colab import drive
@@ -17,7 +35,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
-from tensorflow.keras import models, layers, optimizers, initializers
+from tensorflow.keras import models, layers, optimizers, metrics, initializers
 from tensorflow.keras.datasets import fashion_mnist
 from tensorflow.keras.utils import to_categorical, normalize
 from tensorflow.keras.callbacks import TensorBoard, Callback
@@ -53,10 +71,7 @@ y_train = to_categorical(y_train)
 y_test = to_categorical(y_test)
 ```
 
-### Model Definition and Training
-
-The LeNet-5 model is defined and trained using different regularization techniques: Batch Normalization, Dropout, and L2 Regularization.
-
+### Training the Model
 ```python
 # Define the LeNet-5 model with optional regularization techniques
 def create_model(optimizer, loss, metrics, learning_rate, Batch_norm, Dropout, dropout_rate, L2, seed):
@@ -64,19 +79,23 @@ def create_model(optimizer, loss, metrics, learning_rate, Batch_norm, Dropout, d
         optimizer = optimizers.AdamW()
     optimizer.learning_rate.assign(learning_rate)
     model = models.Sequential()
-    model.add(layers.Conv2D(6, (5, 5), activation='relu', input_shape=(28, 28, 1), kernel_initializer=initializers.HeNormal()))
+    model.add(layers.Conv2D(6, (5, 5), activation='relu', input_shape=(28, 28, 1), kernel_initializer=initializers.HeUniform(seed), padding='same'))
     model.add(layers.MaxPooling2D((2, 2)))
+    if Dropout:
+        model.add(layers.Dropout(rate=dropout_rate[0]))
     if Batch_norm:
         model.add(layers.BatchNormalization())
-    model.add(layers.Conv2D(16, (5, 5), activation='relu', kernel_initializer=initializers.HeNormal()))
+    model.add(layers.Conv2D(16, (5, 5), activation='relu', kernel_initializer=initializers.HeUniform(seed)))
     model.add(layers.MaxPooling2D((2, 2)))
     model.add(layers.Flatten())
     if Dropout:
-        model.add(layers.Dropout(rate=dropout_rate))
+        model.add(layers.Dropout(rate=dropout_rate[1]))
     if Batch_norm:
         model.add(layers.BatchNormalization())
-    model.add(layers.Dense(120, activation='relu', kernel_initializer=initializers.HeNormal()))
-    model.add(layers.Dense(84, activation='relu', kernel_initializer=initializers.HeNormal()))
+    model.add(layers.Dense(120, activation='relu', kernel_initializer=initializers.HeUniform(seed)))
+    if Batch_norm:
+        model.add(layers.BatchNormalization())
+    model.add(layers.Dense(84, activation='relu', kernel_initializer=initializers.HeUniform(seed)))
     model.add(layers.Dense(10, activation='softmax'))
     model.compile(optimizer=optimizer, loss=loss, metrics=[metrics])
     return model
@@ -100,13 +119,13 @@ class TestMetrics(Callback):
 def train_and_save_model(batch_norm, l2, dropout, model_name, x_train, y_train):
     optimizer = optimizers.Adam()
     loss = 'categorical_crossentropy'
-    metrics = 'categorical_accuracy'
-    validation_split = 0.1
-    learning_rate = 1e-4
-    epochs = 50
-    batch_size = 64
-    dropout_rate = 0.5
-    seed = 128
+    metrics = 'accuracy'
+    validation_split = 0.2
+    learning_rate = 5e-4
+    epochs = 10
+    batch_size = 128
+    dropout_rate = [0.15, 0.5]
+    seed = 152
 
     model = create_model(optimizer, loss, metrics, learning_rate, batch_norm, dropout, dropout_rate, l2, seed)
     log_dir = f"/content/drive/MyDrive/ex1_332450014_906943097/{model_name}"
@@ -114,7 +133,7 @@ def train_and_save_model(batch_norm, l2, dropout, model_name, x_train, y_train):
     TB_callback = [TensorBoard(log_dir=log_dir, histogram_freq=1, write_graph=True, write_images=True, update_freq='epoch', profile_batch='5, 10', embeddings_freq=1)]
     test_data_callback = TestMetrics(test_data=(x_test, y_test))
 
-    history = model.fit(x_train, y_train, validation_split=validation_split, epochs=epochs, batch_size=batch_size, verbose=0, callbacks=[TB_callback, test_data_callback])
+    history = model.fit(x_train, y_train, validation_split=validation_split, epochs=epochs, batch_size=batch_size, shuffle=True, callbacks=[TB_callback, test_data_callback])
     model.save(f"/content/drive/MyDrive/ex1_332450014_906943097/{model_name}.h5")
 
     return history, test_data_callback.test_losses, test_data_callback.test_accuracies
@@ -126,10 +145,7 @@ history_dropout, test_losses_dropout, test_accuracies_dropout = train_and_save_m
 history_l2, test_losses_l2, test_accuracies_l2 = train_and_save_model(batch_norm=False, l2=True, dropout=False, model_name="L2", x_train=x_train, y_train=y_train)
 ```
 
-### Testing and Evaluation
-
-The trained models are tested and their performance metrics are evaluated and plotted.
-
+### Testing the Model
 ```python
 from tensorflow.keras import models
 
@@ -146,10 +162,11 @@ def test_models(x_test, y_test):
 results = test_models(x_test, y_test)
 
 # Plot convergence graphs and final results
-def plot_test_metrics(train_accuracy, test_accuracies, model_name, test_results):
+def plot_test_metrics(train_accuracy, val_accuracy, test_accuracies, model_name, test_results):
     epochs = range(1, len(test_accuracies) + 1)
     plt.figure(figsize=(12, 5))
     plt.plot(epochs, train_accuracy, 'bo-', label='Train accuracy')
+    plt.plot(epochs, val_accuracy, 'ro-', label='Validation accuracy')
     plt.plot(epochs, test_accuracies, 'go-', label='Test accuracy')
     plt.title(f'{model_name} - Train/Test Accuracy vs Epoch')
     plt.xlabel('Epochs')
@@ -161,10 +178,10 @@ def plot_test_metrics(train_accuracy, test_accuracies, model_name, test_results)
     return test_results
 
 test_results = {}
-test_results = plot_test_metrics(history_baseline.history['categorical_accuracy'], test_accuracies_baseline, "Baseline", test_results)
-test_results = plot_test_metrics(history_batch_norm.history['categorical_accuracy'], test_accuracies_batch_norm, "Batch_norm", test_results)
-test_results = plot_test_metrics(history_dropout.history['categorical_accuracy'], test_accuracies_dropout, "Dropout", test_results)
-test_results = plot_test_metrics(history_l2.history['categorical_accuracy'], test_accuracies_l2, "L2", test_results)
+test_results = plot_test_metrics(history_baseline.history['accuracy'], history_baseline.history['val_accuracy'], test_accuracies_baseline, "Baseline", test_results)
+test_results = plot_test_metrics(history_batch_norm.history['accuracy'], history_batch_norm.history['val_accuracy'], test_accuracies_batch_norm, "Batch_norm", test_results)
+test_results = plot_test_metrics(history_dropout.history['accuracy'], history_dropout.history['val_accuracy'], test_accuracies_dropout, "Dropout", test_results)
+test_results = plot_test_metrics(history_l2.history['accuracy'], history_l2.history['val_accuracy'], test_accuracies_l2, "L2", test_results)
 
 model_names = ['Baseline', 'Batch_norm', 'Dropout', 'L2']
 test_results = np.array([[model_name, test_results[model_name][0], test_results[model_name][1]] for model_name in model_names])
@@ -179,6 +196,11 @@ ax.set_title('Model Evaluation Metrics', fontsize=16, fontweight='bold', pad=20)
 plt.show()
 ```
 
-### Reference
+## Analysis
+* Best Regularization Technique: Batch normalization consistently outperforms other techniques with the highest test accuracy of 0.8919 and train accuracy of 0.9468. It effectively stabilizes the training process and reduces overfitting.
+* Dropout and L2 Regularization: Both techniques provide improvements over the baseline in terms of test accuracy. Dropout helps in preventing overfitting with a slight trade-off in training accuracy, while L2 regularization provides a balanced improvement.
+* Baseline vs Regularized Models: All regularization techniques improved the model's performance compared to the baseline. The test accuracy of the baseline model is lower, indicating more overfitting compared to the regularized models.
+
+## Reference
 [LeNet Architecture: A Complete Guide](https://www.kaggle.com/code/blurredmachine/lenet-architecture-a
 
